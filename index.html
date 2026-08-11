@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phrase ICE + Tailwind `hidden lg:block` repro</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="min-h-screen bg-white text-slate-900 p-8 font-sans">
+
+  <main class="mx-auto max-w-2xl space-y-8">
+    <header class="space-y-2">
+      <h1 class="text-2xl font-bold">Phrase In-Context Editor vs Tailwind <code>hidden lg:block</code></h1>
+      <p class="text-slate-600">
+        <strong>Viewport must be &ge;1024px wide (Tailwind <code>lg</code> breakpoint)</strong> for this repro
+        to demonstrate the bug. Below 1024px all three boxes are correctly hidden or shown per their classes,
+        and there is nothing to see.
+      </p>
+      <p class="text-slate-600">
+        Load with <code>?phrase=on</code> to arm the editor. Add <code>&amp;hidingClasses=off</code> to also
+        drop <code>"hidden"</code> from the scanner's <code>hidingClasses</code> config (per
+        <a class="underline" href="https://github.com/phrase/ngx-translate-phraseapp/issues/63" target="_blank" rel="noreferrer">ngx-translate-phraseapp#63</a>)
+        — expected to have no effect, since that option isn't what drives this skip.
+      </p>
+    </header>
+
+    <section class="space-y-3">
+      <h2 class="font-semibold text-sm uppercase tracking-wide text-slate-500">1. Control — plain visible div</h2>
+      <p class="text-slate-500 text-sm">No hiding classes at all. Phrase must wrap this marker. If it doesn't, the integration itself is broken — not the bug under test.</p>
+      <div class="rounded border border-slate-300 p-4">
+        <span id="control">{{phrase_repro.control}}</span>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="font-semibold text-sm uppercase tracking-wide text-slate-500">2. Victim — <code>hidden lg:block</code></h2>
+      <p class="text-slate-500 text-sm">Genuinely visible at this viewport (&ge;1024px) because <code>lg:block</code> overrides <code>hidden</code>. Phrase's scanner sees the literal <code>hidden</code> class token and skips the subtree regardless — this is the bug.</p>
+      <div class="hidden lg:block rounded border border-red-400 p-4">
+        <section class="hidden lg:block">
+          <span id="victim">{{phrase_repro.victim}}</span>
+        </section>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="font-semibold text-sm uppercase tracking-wide text-slate-500">3. Expected-hidden — bare <code>hidden</code>, no override</h2>
+      <p class="text-slate-500 text-sm">Correctly hidden at every viewport, no responsive override. Phrase is <em>supposed</em> to skip this one — included so the claim stays scoped to "computed visibility vs. class-token presence", not "hidden should always be scanned".</p>
+      <div class="hidden rounded border border-slate-300 p-4">
+        <span id="expected-hidden">{{phrase_repro.expected_hidden}}</span>
+      </div>
+    </section>
+
+    <section id="result" class="rounded border border-slate-300 p-4 text-sm font-mono bg-slate-50"></section>
+  </main>
+
+  <script>
+    // Mirrors the real snippet rendered by TC's `_phrase_ice.html.erb` layout
+    // partial (accountId/projectId/datacenter/prefix/suffix), minus the
+    // Rails ERB interpolation. Fill in real values in config.js.
+    const params = new URLSearchParams(location.search);
+    const hidingClassesOff = params.get("hidingClasses") === "off";
+
+    window.PHRASEAPP_CONFIG = window.PHRASEAPP_CONFIG || {};
+    if (hidingClassesOff) {
+      // Per Phrase support's reply: this does NOT fix the victim case. Kept as a
+      // toggle so Phrase engineering can confirm that themselves without
+      // re-deriving it from the trace.
+      window.PHRASEAPP_CONFIG.hidingClasses = ["visuallyhidden", "invisible"];
+    }
+    window.PHRASEAPP_CONFIG.prefix = window.PHRASEAPP_CONFIG.prefix || "{{phrase_";
+    window.PHRASEAPP_CONFIG.suffix = window.PHRASEAPP_CONFIG.suffix || "}}";
+  </script>
+  <script src="./config.js"></script>
+  <script type="module" async src="https://cdn.phrase.com/strings/plugins/editor/latest/ice/index.js"></script>
+
+  <script>
+    // Verification helper: after Phrase's MutationObserver settles, report
+    // which markers got wrapped vs. which stayed raw text. Phrase wraps a
+    // processed marker in an element carrying a `data-phrase-...` attribute
+    // (confirm exact attribute name in your browser's devtools on #control,
+    // then this stays accurate after their fix too).
+    function report() {
+      const ids = ["control", "victim", "expected-hidden"];
+      const out = ids.map((id) => {
+        const el = document.getElementById(id);
+        const raw = el ? el.textContent.includes("{{phrase_") : null;
+        return `${id}: ${raw ? "RAW (not wrapped)" : "wrapped/processed"}`;
+      });
+      document.getElementById("result").textContent = out.join("\n");
+    }
+    window.addEventListener("load", () => setTimeout(report, 3000));
+  </script>
+</body>
+</html>
